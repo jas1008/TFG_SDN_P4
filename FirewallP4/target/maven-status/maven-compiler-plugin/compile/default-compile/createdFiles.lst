@@ -1,0 +1,6 @@
+org/onosproject/firewall/SomeInterface.class
+org/onosproject/firewall/FirewallP4$FwRule.class
+org/onosproject/firewall/FirewallRules.class
+org/onosproject/firewall/FirewallP4$PingPacketProcessor.class
+org/onosproject/firewall/FirewallP4$1.class
+org/onosproject/firewall/FirewallP4.class
