@@ -145,7 +145,7 @@ public class FirewallP4 {
     }
 
     public void showFwRules() {
-        System.out.println("Reglas: " + rules.toString());
+        System.out.println("Reglas: " + rules);
     }
 
     @Activate
@@ -153,6 +153,7 @@ public class FirewallP4 {
         appId = coreService.registerApplication("org.onosproject.firewall",
                 () -> log.info("Periscope down."));
         rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.3")));
+        rules.add(new FwRule(Ip4Address.valueOf("192.168.100.3"), Ip4Address.valueOf("192.168.100.1")));
         rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.4")));
         log.info("Started");
         log.warn("ESTOY EN ACTIVATE");
@@ -162,7 +163,7 @@ public class FirewallP4 {
         packetService.addProcessor(packetProcessor, PROCESS_PRIORITY);
         packetService.requestPackets(DefaultTrafficSelector.builder().matchPi(intercept).build(),
                 PacketPriority.CONTROL, appId, Optional.empty());
-        cfgService.registerProperties(getClass());
+        //cfgService.registerProperties(getClass());
         //modified(context);
     }
 
@@ -170,7 +171,7 @@ public class FirewallP4 {
     public void deactivate() {
         packetService.removeProcessor(packetProcessor);
         flowRuleService.removeFlowRulesById(appId);
-        cfgService.unregisterProperties(getClass(), false);
+        //cfgService.unregisterProperties(getClass(), false);
         log.info("Stopped");
     }
 
@@ -180,12 +181,19 @@ public class FirewallP4 {
                 ((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_ICMP;
     }
 
+    private boolean isTCPUDP(Ethernet eth) {
+        return eth.getEtherType() == Ethernet.TYPE_IPV4 &&
+                (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_TCP || ((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_UDP);
+    }
+
     private class PingPacketProcessor implements PacketProcessor {
         @Override
         public void process(PacketContext context) {
             Ethernet eth = context.inPacket().parsed();
             if (isIcmpPing(eth)) {
                 processPing(context, eth);
+            } else if (isTCPUDP(eth)) {
+                processTCPUDP(context, eth);
             }
         }
     }
@@ -193,6 +201,23 @@ public class FirewallP4 {
     // Processes the specified ICMP ping packet.
     private void processPing(PacketContext context, Ethernet eth) {
         log.info("ESTOY EN PROCESSPING");
+        DeviceId deviceId = context.inPacket().receivedFrom().deviceId();
+        MacAddress src = eth.getSourceMAC();
+        MacAddress dst = eth.getDestinationMAC();
+        IPacket payload = eth.getPayload();
+        IPv4 packet = (IPv4) eth.getPayload();
+        Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
+        Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
+        applyFirewallRules(deviceId);
+        log.info("Ping de {} a {}", source, destination);
+        for (FwRule rule : rules) {
+            log.warn("Regla de firewall actual: {}", rule.toString());
+        }
+    }
+
+    // Processes the specified ICMP ping packet.
+    private void processTCPUDP(PacketContext context, Ethernet eth) {
+        log.info("ESTOY EN PROCESSTCPUDP");
         DeviceId deviceId = context.inPacket().receivedFrom().deviceId();
         MacAddress src = eth.getSourceMAC();
         MacAddress dst = eth.getDestinationMAC();
@@ -210,6 +235,7 @@ public class FirewallP4 {
         log.info("APLICO REGLAS DE FIREWALL");
         for (FwRule rule : rules) {
             blockPingByIP(deviceId, rule.getSrc(), rule.getDst());
+            blockTcpUdpByIP(deviceId, rule.getSrc(), rule.getDst());
         }
     }
 
@@ -237,5 +263,55 @@ public class FirewallP4 {
 
         // Apply the drop rule
         flowRuleService.applyFlowRules(dropRule);
+    }
+
+    private void blockTcpUdpByIP(DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp) {
+        // Define the criteria for TCP interception using PiCriterion
+        PiCriterion tcpMatch = PiCriterion.builder()
+                .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_TCP, 0xff)
+                .build();
+
+        // Define the action to drop TCP traffic using PiAction
+        PiAction tcpAction = PiAction.builder()
+                .withId(PiActionId.of("ingress.table0_control.drop"))
+                .build();
+
+        // Create a flow rule to drop TCP packets
+        FlowRule dropTcpRule = DefaultFlowRule.builder()
+                .forDevice(deviceId).fromApp(appId).makePermanent().withPriority(DROP_PRIORITY)
+                .forTable(PiTableId.of("ingress.table0_control.table0"))
+                .withSelector(DefaultTrafficSelector.builder().matchPi(tcpMatch).build())
+                .withTreatment(DefaultTrafficTreatment.builder().piTableAction(tcpAction).build())
+                .build();
+
+        // Apply the drop rule for TCP packets using FlowRuleService
+        flowRuleService.applyFlowRules(dropTcpRule);
+
+        // Define the criteria for UDP interception using PiCriterion
+        PiCriterion udpMatch = PiCriterion.builder()
+                .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
+                .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_UDP, 0xff)
+                .build();
+
+        // Define the action to drop UDP traffic using PiAction
+        PiAction udpAction = PiAction.builder()
+                .withId(PiActionId.of("ingress.table0_control.drop"))
+                .build();
+
+        // Create a flow rule to drop UDP packets
+        FlowRule dropUdpRule = DefaultFlowRule.builder()
+                .forDevice(deviceId).fromApp(appId).makePermanent().withPriority(DROP_PRIORITY)
+                .forTable(PiTableId.of("ingress.table0_control.table0"))
+                .withSelector(DefaultTrafficSelector.builder().matchPi(udpMatch).build())
+                .withTreatment(DefaultTrafficTreatment.builder().piTableAction(udpAction).build())
+                .build();
+
+        // Apply the drop rule for UDP packets using FlowRuleService
+        flowRuleService.applyFlowRules(dropUdpRule);
     }
 }
