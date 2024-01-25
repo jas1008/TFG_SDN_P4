@@ -1,4 +1,6 @@
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/SomeInterface.java
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/FirewallRules.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/AddFirewallRules.java
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/FirewallP4.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/RemoveFirewallRules.java
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/package-info.java

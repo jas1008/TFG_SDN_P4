@@ -15,10 +15,7 @@
  */
 package org.onosproject.firewall;
 
-import com.google.common.base.Strings;
 import org.onlab.packet.*;
-import org.onlab.util.ImmutableByteSequence;
-import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreService;
@@ -41,11 +38,9 @@ import org.onosproject.net.pi.model.PiActionId;
 import org.onosproject.net.pi.model.PiMatchFieldId;
 import org.onosproject.net.pi.model.PiTableId;
 import org.onosproject.net.pi.runtime.PiAction;
-import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
-import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.slf4j.Logger;
@@ -104,7 +99,11 @@ public class FirewallP4 {
 
     private final Set<FwRule> rules = new HashSet<>();
 
-    private class FwRule {
+    private final String ALLOW = "allow";
+
+    private final String DENY = "deny";
+
+    protected static class FwRule {
         private final Ip4Address src;
 
         public Ip4Address getSrc() {
@@ -117,22 +116,37 @@ public class FirewallP4 {
             return dst;
         }
 
-        public FwRule(Ip4Address src, Ip4Address dst) {
+        private final String service;
+
+        public String getService() {
+            return service;
+        }
+
+        private int port;
+
+        public int getPort() {
+            return port;
+        }
+
+        private DeviceId deviceId;
+
+        public DeviceId getDeviceId() {
+            return deviceId;
+        }
+
+        public FwRule(Ip4Address src, Ip4Address dst, String service, DeviceId deviceId, int port) {
             this.src = src;
             this.dst = dst;
+            this.service = service;
+            this.deviceId = deviceId;
+            this.port = port;
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            FwRule fwRule = (FwRule) o;
-            return Objects.equals(src, fwRule.src) && Objects.equals(dst, fwRule.dst);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(src, dst);
+        public FwRule(Ip4Address src, Ip4Address dst, String service, DeviceId deviceId) {
+            this.src = src;
+            this.dst = dst;
+            this.service = service;
+            this.deviceId = deviceId;
         }
 
         @Override
@@ -140,38 +154,61 @@ public class FirewallP4 {
             return "FwRule{" +
                     "src=" + src +
                     ", dst=" + dst +
+                    ", service=" + service +
+                    ", port=" + port +
                     '}';
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            FwRule fwRule = (FwRule) o;
+            return port == fwRule.port && Objects.equals(src, fwRule.src) && Objects.equals(dst, fwRule.dst) && Objects.equals(service, fwRule.service);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(src, dst, service, port);
         }
     }
 
     public void showFwRules() {
-        System.out.println("Reglas: " + rules);
+        for (FwRule rule : rules) {
+            System.out.println(rule);
+        }
+    }
+
+    public void addFwRules(FwRule rule) {
+        rules.add(rule);
+        applyFlowRule(rule.getDeviceId(), rule.getSrc(), rule.getDst(), rule.getService(), DENY);
+    }
+
+    public void removeFwRules(FwRule rule) {
+        rules.remove(rule);
+        applyFlowRule(rule.getDeviceId(), rule.getSrc(), rule.getDst(), rule.getService(), ALLOW);
     }
 
     @Activate
-    public void activate(ComponentContext context) throws ImmutableByteSequence.ByteSequenceTrimException {
+    public void activate() {
         appId = coreService.registerApplication("org.onosproject.firewall",
                 () -> log.info("Periscope down."));
-        rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.3")));
-        rules.add(new FwRule(Ip4Address.valueOf("192.168.100.3"), Ip4Address.valueOf("192.168.100.1")));
-        rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.4")));
+        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.3"), "PING"));
+        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.3"), Ip4Address.valueOf("192.168.100.1"), "PING"));
+        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.4"), "PING"));
         log.info("Started");
-        log.warn("ESTOY EN ACTIVATE");
         for (FwRule rule : rules) {
             log.warn("Regla de firewall inicial: {}", rule);
         }
         packetService.addProcessor(packetProcessor, PROCESS_PRIORITY);
         packetService.requestPackets(DefaultTrafficSelector.builder().matchPi(intercept).build(),
                 PacketPriority.CONTROL, appId, Optional.empty());
-        //cfgService.registerProperties(getClass());
-        //modified(context);
     }
 
     @Deactivate
     public void deactivate() {
         packetService.removeProcessor(packetProcessor);
         flowRuleService.removeFlowRulesById(appId);
-        //cfgService.unregisterProperties(getClass(), false);
         log.info("Stopped");
     }
 
@@ -181,9 +218,14 @@ public class FirewallP4 {
                 ((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_ICMP;
     }
 
-    private boolean isTCPUDP(Ethernet eth) {
+    private boolean isTCP(Ethernet eth) {
         return eth.getEtherType() == Ethernet.TYPE_IPV4 &&
-                (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_TCP || ((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_UDP);
+                (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_TCP);
+    }
+
+    private boolean isUDP(Ethernet eth) {
+        return eth.getEtherType() == Ethernet.TYPE_IPV4 &&
+                (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_UDP);
     }
 
     private class PingPacketProcessor implements PacketProcessor {
@@ -191,62 +233,57 @@ public class FirewallP4 {
         public void process(PacketContext context) {
             Ethernet eth = context.inPacket().parsed();
             if (isIcmpPing(eth)) {
-                processPing(context, eth);
-            } else if (isTCPUDP(eth)) {
-                processTCPUDP(context, eth);
+                log.info("TRAMA ETHERNET: {}", eth);
+                IPv4 packet = (IPv4) eth.getPayload();
+                Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
+                Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
+                log.info("Ping de {} a {}", source, destination);
+            } else if (isTCP(eth)) {
+                log.info("TRAMA ETHERNET: {}", eth);
+                IPv4 packet = (IPv4) eth.getPayload();
+                Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
+                Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
+                log.info("TCP de {} a {}", source, destination);
+            } else if (isUDP(eth)) {
+                log.info("TRAMA ETHERNET: {}", eth);
+                IPv4 packet = (IPv4) eth.getPayload();
+                Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
+                Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
+                log.info("UDP de {} a {}", source, destination);
             }
         }
     }
 
-    // Processes the specified ICMP ping packet.
-    private void processPing(PacketContext context, Ethernet eth) {
-        log.info("ESTOY EN PROCESSPING");
-        DeviceId deviceId = context.inPacket().receivedFrom().deviceId();
-        MacAddress src = eth.getSourceMAC();
-        MacAddress dst = eth.getDestinationMAC();
-        IPacket payload = eth.getPayload();
-        IPv4 packet = (IPv4) eth.getPayload();
-        Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
-        Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
-        applyFirewallRules(deviceId);
-        log.info("Ping de {} a {}", source, destination);
-        for (FwRule rule : rules) {
-            log.warn("Regla de firewall actual: {}", rule.toString());
+    private void applyFlowRule(DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp, String service, String policy) {
+        PiCriterion match = null;
+        switch(service.toUpperCase()) {
+            case "PING":
+                // Define the interception criteria for IPv4 addresses
+                match = PiCriterion.builder()
+                        .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_ICMP, 0xff)
+                        .build();
+                break;
+            case "TCP":
+                match = PiCriterion.builder()
+                        .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_TCP, 0xff)
+                        .build();
+                break;
+            case "UDP":
+                match = PiCriterion.builder()
+                        .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_UDP, 0xff)
+                        .build();
+                break;
+            default:
         }
-    }
-
-    // Processes the specified ICMP ping packet.
-    private void processTCPUDP(PacketContext context, Ethernet eth) {
-        log.info("ESTOY EN PROCESSTCPUDP");
-        DeviceId deviceId = context.inPacket().receivedFrom().deviceId();
-        MacAddress src = eth.getSourceMAC();
-        MacAddress dst = eth.getDestinationMAC();
-        IPv4 packet = (IPv4) eth.getPayload();
-        Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
-        Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
-        applyFirewallRules(deviceId);
-        log.info("Ping de {} a {}", source, destination);
-        for (FwRule rule : rules) {
-            log.warn("Regla de firewall actual: {}", rule.toString());
-        }
-    }
-
-    private void applyFirewallRules(DeviceId deviceId) {
-        log.info("APLICO REGLAS DE FIREWALL");
-        for (FwRule rule : rules) {
-            blockPingByIP(deviceId, rule.getSrc(), rule.getDst());
-            blockTcpUdpByIP(deviceId, rule.getSrc(), rule.getDst());
-        }
-    }
-
-    private void blockPingByIP(DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp) {
-        // Define the interception criteria for IPv4 addresses
-        PiCriterion match = PiCriterion.builder()
-                .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_ICMP, 0xff)
-                .build();
 
         // Define the action to drop the traffic
         PiAction action = PiAction.builder()
@@ -261,57 +298,12 @@ public class FirewallP4 {
                 .withTreatment(DefaultTrafficTreatment.builder().piTableAction(action).build())
                 .build();
 
-        // Apply the drop rule
-        flowRuleService.applyFlowRules(dropRule);
-    }
-
-    private void blockTcpUdpByIP(DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp) {
-        // Define the criteria for TCP interception using PiCriterion
-        PiCriterion tcpMatch = PiCriterion.builder()
-                .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_TCP, 0xff)
-                .build();
-
-        // Define the action to drop TCP traffic using PiAction
-        PiAction tcpAction = PiAction.builder()
-                .withId(PiActionId.of("ingress.table0_control.drop"))
-                .build();
-
-        // Create a flow rule to drop TCP packets
-        FlowRule dropTcpRule = DefaultFlowRule.builder()
-                .forDevice(deviceId).fromApp(appId).makePermanent().withPriority(DROP_PRIORITY)
-                .forTable(PiTableId.of("ingress.table0_control.table0"))
-                .withSelector(DefaultTrafficSelector.builder().matchPi(tcpMatch).build())
-                .withTreatment(DefaultTrafficTreatment.builder().piTableAction(tcpAction).build())
-                .build();
-
-        // Apply the drop rule for TCP packets using FlowRuleService
-        flowRuleService.applyFlowRules(dropTcpRule);
-
-        // Define the criteria for UDP interception using PiCriterion
-        PiCriterion udpMatch = PiCriterion.builder()
-                .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
-                .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_UDP, 0xff)
-                .build();
-
-        // Define the action to drop UDP traffic using PiAction
-        PiAction udpAction = PiAction.builder()
-                .withId(PiActionId.of("ingress.table0_control.drop"))
-                .build();
-
-        // Create a flow rule to drop UDP packets
-        FlowRule dropUdpRule = DefaultFlowRule.builder()
-                .forDevice(deviceId).fromApp(appId).makePermanent().withPriority(DROP_PRIORITY)
-                .forTable(PiTableId.of("ingress.table0_control.table0"))
-                .withSelector(DefaultTrafficSelector.builder().matchPi(udpMatch).build())
-                .withTreatment(DefaultTrafficTreatment.builder().piTableAction(udpAction).build())
-                .build();
-
-        // Apply the drop rule for UDP packets using FlowRuleService
-        flowRuleService.applyFlowRules(dropUdpRule);
+        if (policy.equals(DENY)) {
+            // Apply the drop rule
+            flowRuleService.applyFlowRules(dropRule);
+        } else if (policy.equals(ALLOW)) {
+            // Remove the flow rule
+            flowRuleService.removeFlowRules(dropRule);
+        }
     }
 }

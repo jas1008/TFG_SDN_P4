@@ -8,12 +8,13 @@ import org.apache.karaf.shell.api.action.Argument;
 import org.onlab.packet.MacAddress;
 import org.onlab.packet.VlanId;
 import org.onosproject.firewall.FirewallP4;
+
 /**
  * Command to check the current firewall rules applied in the device.
  */
 @Service
 @Command(scope = "onos", name = "show-Fw-Rules",
-        description = "shows the firewall rules applied")
+        description = "Shows the current firewall rules")
 public class FirewallRules extends AbstractShellCommand {
 
     @Override
