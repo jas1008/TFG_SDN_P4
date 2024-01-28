@@ -1,6 +1,11 @@
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/SomeInterface.java
-/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/FirewallRules.java
-/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/AddFirewallRules.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/cli/package-info.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/rest/AppWebApplication.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/cli/AddFirewallRules.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/rest/AppWebResource.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/rest/package-info.java
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/FirewallP4.java
-/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/RemoveFirewallRules.java
+/home/juan/onos/FirewallP4/target/generated-sources/org/onosproject/firewall/rest/ApiDocRegistrator.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/cli/RemoveFirewallRules.java
+/home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/cli/ShowFirewallRules.java
 /home/juan/onos/FirewallP4/src/main/java/org/onosproject/firewall/package-info.java

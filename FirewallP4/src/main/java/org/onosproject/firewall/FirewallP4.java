@@ -92,6 +92,7 @@ public class FirewallP4 {
 
     private final PacketProcessor packetProcessor = new PingPacketProcessor();
 
+    // Define the interception criteria for IPv4 addresses
     PiCriterion intercept = PiCriterion.builder()
             .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
             .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_ICMP, 0xff)
@@ -103,7 +104,7 @@ public class FirewallP4 {
 
     private final String DENY = "deny";
 
-    protected static class FwRule {
+    public static class FwRule {
         private final Ip4Address src;
 
         public Ip4Address getSrc() {
@@ -151,12 +152,7 @@ public class FirewallP4 {
 
         @Override
         public String toString() {
-            return "FwRule{" +
-                    "src=" + src +
-                    ", dst=" + dst +
-                    ", service=" + service +
-                    ", port=" + port +
-                    '}';
+            return src + " " + dst + "   " + service + "     " + port + "    " + deviceId;
         }
 
         @Override
@@ -173,7 +169,12 @@ public class FirewallP4 {
         }
     }
 
+    public Set<FwRule> getFwRules() {
+        return rules;
+    }
+
     public void showFwRules() {
+        System.out.println("Source IP     Destination IP  Service  Port  Device");
         for (FwRule rule : rules) {
             System.out.println(rule);
         }
@@ -197,9 +198,6 @@ public class FirewallP4 {
         //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.3"), Ip4Address.valueOf("192.168.100.1"), "PING"));
         //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.4"), "PING"));
         log.info("Started");
-        for (FwRule rule : rules) {
-            log.warn("Regla de firewall inicial: {}", rule);
-        }
         packetService.addProcessor(packetProcessor, PROCESS_PRIORITY);
         packetService.requestPackets(DefaultTrafficSelector.builder().matchPi(intercept).build(),
                 PacketPriority.CONTROL, appId, Optional.empty());
@@ -261,12 +259,13 @@ public class FirewallP4 {
                 // Define the interception criteria for IPv4 addresses
                 match = PiCriterion.builder()
                         .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
-                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(),0xffffffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_ICMP, 0xff)
                         .build();
                 break;
             case "TCP":
+                // Define the interception criteria for IPv4 addresses
                 match = PiCriterion.builder()
                         .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
@@ -275,6 +274,7 @@ public class FirewallP4 {
                         .build();
                 break;
             case "UDP":
+                // Define the interception criteria for IPv4 addresses
                 match = PiCriterion.builder()
                         .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
@@ -302,7 +302,7 @@ public class FirewallP4 {
             // Apply the drop rule
             flowRuleService.applyFlowRules(dropRule);
         } else if (policy.equals(ALLOW)) {
-            // Remove the flow rule
+            // Remove the drop rule
             flowRuleService.removeFlowRules(dropRule);
         }
     }
