@@ -1,10 +1,9 @@
-org/onosproject/firewall/SomeInterface.class
 org/onosproject/firewall/rest/AppWebResource.class
 org/onosproject/firewall/cli/RemoveFirewallRules.class
 org/onosproject/firewall/rest/ApiDocRegistrator.class
 org/onosproject/firewall/cli/ShowFirewallRules.class
+org/onosproject/firewall/FirewallP4$FirewallPacketProcessor.class
 org/onosproject/firewall/rest/AppWebApplication.class
 org/onosproject/firewall/FirewallP4$FwRule.class
-org/onosproject/firewall/FirewallP4$PingPacketProcessor.class
 org/onosproject/firewall/FirewallP4.class
 org/onosproject/firewall/cli/AddFirewallRules.class

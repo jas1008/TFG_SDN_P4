@@ -9,13 +9,12 @@ import org.onosproject.firewall.FirewallP4;
  * Command to check the current firewall rules applied in the device.
  */
 @Service
-@Command(scope = "onos", name = "show-Fw-Rules",
-        description = "Shows the current firewall rules")
+@Command(scope = "onos", name = "show-Fw-Rules", description = "Shows the current firewall rules")
 public class ShowFirewallRules extends AbstractShellCommand {
 
     @Override
     protected void doExecute() {
-        FirewallP4 FirewallP4Service = AbstractShellCommand.get(FirewallP4.class);
-        FirewallP4Service.showFwRules();
+        FirewallP4 firewallP4Service = AbstractShellCommand.get(FirewallP4.class);
+        firewallP4Service.showFwRules();
     }
 }

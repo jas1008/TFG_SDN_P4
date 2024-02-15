@@ -1,35 +1,25 @@
-/*
- * Copyright 2023-present Open Networking Foundation
+/**
+ * Class that implements firewall policies and aplies the flow rules to ONOS.
+ * Contains a subclasss that defines the structure of the firewall rules.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @author: Juan Abelairas Soto-Largo
  */
+
 package org.onosproject.firewall;
 
-import org.onlab.packet.*;
-import org.onosproject.cfg.ComponentConfigService;
+import org.onlab.packet.Ethernet;
+import org.onlab.packet.IPv4;
+import org.onlab.packet.Ip4Address;
+
 import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreService;
 import org.onosproject.net.DeviceId;
-import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.flow.DefaultFlowRule;
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
 import org.onosproject.net.flow.FlowRule;
 import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.criteria.PiCriterion;
-import org.onosproject.net.flowobjective.FlowObjectiveService;
-import org.onosproject.net.host.HostProbingService;
-import org.onosproject.net.host.HostService;
 import org.onosproject.net.packet.PacketContext;
 import org.onosproject.net.packet.PacketPriority;
 import org.onosproject.net.packet.PacketProcessor;
@@ -38,15 +28,21 @@ import org.onosproject.net.pi.model.PiActionId;
 import org.onosproject.net.pi.model.PiMatchFieldId;
 import org.onosproject.net.pi.model.PiTableId;
 import org.onosproject.net.pi.runtime.PiAction;
+
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+
 
 /**
  * Skeletal ONOS application component.
@@ -68,29 +64,14 @@ public class FirewallP4 {
     protected CoreService coreService;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected DeviceService deviceService;
-
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected HostService hostService;
-
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected HostProbingService hostProbingService;
-
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected FlowObjectiveService flowObjectiveService;
-
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected FlowRuleService flowRuleService;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected PacketService packetService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected ComponentConfigService cfgService;
-
     private ApplicationId appId;
 
-    private final PacketProcessor packetProcessor = new PingPacketProcessor();
+    private final PacketProcessor packetProcessor = new FirewallPacketProcessor();
 
     // Define the interception criteria for IPv4 addresses
     PiCriterion intercept = PiCriterion.builder()
@@ -100,9 +81,9 @@ public class FirewallP4 {
 
     private final Set<FwRule> rules = new HashSet<>();
 
-    private final String ALLOW = "allow";
+    private static final String ALLOW = "allow";
 
-    private final String DENY = "deny";
+    private static final String DENY = "deny";
 
     public static class FwRule {
         private final Ip4Address src;
@@ -129,7 +110,7 @@ public class FirewallP4 {
             return port;
         }
 
-        private DeviceId deviceId;
+        private final DeviceId deviceId;
 
         public DeviceId getDeviceId() {
             return deviceId;
@@ -152,15 +133,20 @@ public class FirewallP4 {
 
         @Override
         public String toString() {
-            return src + " " + dst + "   " + service + "     " + port + "    " + deviceId;
+            return src + " " + dst + "   " + service + "      " + deviceId;
         }
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             FwRule fwRule = (FwRule) o;
-            return port == fwRule.port && Objects.equals(src, fwRule.src) && Objects.equals(dst, fwRule.dst) && Objects.equals(service, fwRule.service);
+            return port == fwRule.port && Objects.equals(src, fwRule.src) &&
+                    Objects.equals(dst, fwRule.dst) && Objects.equals(service, fwRule.service);
         }
 
         @Override
@@ -174,7 +160,7 @@ public class FirewallP4 {
     }
 
     public void showFwRules() {
-        System.out.println("Source IP     Destination IP  Service  Port  Device");
+        System.out.println("Source IP     Destination IP  Service  Device");
         for (FwRule rule : rules) {
             System.out.println(rule);
         }
@@ -194,9 +180,6 @@ public class FirewallP4 {
     public void activate() {
         appId = coreService.registerApplication("org.onosproject.firewall",
                 () -> log.info("Periscope down."));
-        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.3"), "PING"));
-        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.3"), Ip4Address.valueOf("192.168.100.1"), "PING"));
-        //rules.add(new FwRule(Ip4Address.valueOf("192.168.100.1"), Ip4Address.valueOf("192.168.100.4"), "PING"));
         log.info("Started");
         packetService.addProcessor(packetProcessor, PROCESS_PRIORITY);
         packetService.requestPackets(DefaultTrafficSelector.builder().matchPi(intercept).build(),
@@ -216,17 +199,17 @@ public class FirewallP4 {
                 ((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_ICMP;
     }
 
-    private boolean isTCP(Ethernet eth) {
+    private boolean isTcp(Ethernet eth) {
         return eth.getEtherType() == Ethernet.TYPE_IPV4 &&
                 (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_TCP);
     }
 
-    private boolean isUDP(Ethernet eth) {
+    private boolean isUdp(Ethernet eth) {
         return eth.getEtherType() == Ethernet.TYPE_IPV4 &&
                 (((IPv4) eth.getPayload()).getProtocol() == IPv4.PROTOCOL_UDP);
     }
 
-    private class PingPacketProcessor implements PacketProcessor {
+    private class FirewallPacketProcessor implements PacketProcessor {
         @Override
         public void process(PacketContext context) {
             Ethernet eth = context.inPacket().parsed();
@@ -236,13 +219,13 @@ public class FirewallP4 {
                 Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
                 Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
                 log.info("Ping de {} a {}", source, destination);
-            } else if (isTCP(eth)) {
+            } else if (isTcp(eth)) {
                 log.info("TRAMA ETHERNET: {}", eth);
                 IPv4 packet = (IPv4) eth.getPayload();
                 Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
                 Ip4Address destination = Ip4Address.valueOf(packet.getDestinationAddress());
                 log.info("TCP de {} a {}", source, destination);
-            } else if (isUDP(eth)) {
+            } else if (isUdp(eth)) {
                 log.info("TRAMA ETHERNET: {}", eth);
                 IPv4 packet = (IPv4) eth.getPayload();
                 Ip4Address source = Ip4Address.valueOf(packet.getSourceAddress());
@@ -254,12 +237,12 @@ public class FirewallP4 {
 
     private void applyFlowRule(DeviceId deviceId, Ip4Address srcIp, Ip4Address dstIp, String service, String policy) {
         PiCriterion match = null;
-        switch(service.toUpperCase()) {
+        switch (service.toUpperCase()) {
             case "PING":
                 // Define the interception criteria for IPv4 addresses
                 match = PiCriterion.builder()
                         .matchTernary(PiMatchFieldId.of("hdr.ethernet.ether_type"), Ethernet.TYPE_IPV4, 0xffff)
-                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(),0xffffffff)
+                        .matchTernary(PiMatchFieldId.of("hdr.ipv4.src_addr"), srcIp.toInt(), 0xffffffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.dst_addr"), dstIp.toInt(), 0xffffffff)
                         .matchTernary(PiMatchFieldId.of("hdr.ipv4.protocol"), IPv4.PROTOCOL_ICMP, 0xff)
                         .build();
